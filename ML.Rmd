@@ -1,0 +1,157 @@
+---
+title: "ML"
+output: html_document
+author: Julia Breitenbruch
+
+---
+## Practical Machine Learning: Course Project
+
+## Background
+
+Six young healthy male participants were asked to perform one set of 10 repitions of the Unilateral Dumpbell Biceps Curl in five different fashions: exactly according to the specification (Class A) , throwing the elbows to the front (Class  B), lifting the dumbbell only halfway (class C), lowering the dumbell only halfway (Class D) and throwing the hips to the front (class E). The goal of this project is to identify the execution type of the exercise by the information given from motion sensors on participants' bodies.
+
+## Getting data and preprocessing
+
+First I have to read in my data saved in my working directory, unifying the appearance of the "NA"-variables by converting empty strings as well as excel division error strings (#DIV/0!) in "NA"-variables:
+``` {r}
+training<-read.csv("pml-training.csv", na.strings=c("","#DIV/0!","NA"))
+testing<-read.csv("pml-testing.csv", na.strings=c("","#DIV/0!","NA"))
+dim(training)
+dim(testing)
+
+```
+
+Both datasets contain the same variables (with exception from the last, which is "classe" in "training" and "problem_id" in "testing"):
+
+Typing str(training) reveals that the first seven columns are irrelevant as
+predictors, so we set:
+
+``` {r}
+training<-training[,-c(1:7)]
+```
+Also there seem to be variables with lots of "NA". I decide to not include those variables with more than 80% "NA"-entries as predictors:
+
+``` {r}
+c<-matrix(153,1)
+for(i in 1:153)
+{c[i]=ifelse( sum(is.na(training[,c(i)]))>0.8*19622,i,0)}
+print(c)
+
+```
+
+This leads to
+``` {r}
+training<-training[,-c(5:29,43:52,62:76,80:94,96:105,118:132,134:143)]
+
+```
+Maybe we could reduce further prediction variables:
+``` {r}
+library(caret)
+nzv<-subset(nearZeroVar(training, saveMetrics=TRUE),zeroVar==TRUE |nzv==TRUE)
+nzv
+
+```
+This is obviously not the case.So we get the following prediction variables:
+``` {r}
+names(training[,-c(53)])
+
+```
+
+We subdivide the training set into a train section and a test section:
+``` {r}
+library(caret)
+set.seed(36546)
+trainingIndex  <- createDataPartition(training$classe, p=.60, list=FALSE)
+training.train <- training[ trainingIndex,]
+training.test  <- training[-trainingIndex,]
+
+```
+
+As I now have divided my already classified data in a train and a test part, I would like to apply some prediction models and compare them to each other. 
+
+## Prediction with k-Nearest Neighbour Classification
+
+``` {r}
+library(kknn)
+set.seed(36546)
+ModelKKNN<-kknn(classe~.,training.train,training.test)
+
+```
+X contains the predictions for the variable classe for training.test by the k-Nearest Neighbour Algorithm:
+
+``` {r}
+X<-as.factor(ModelKKNN$CL[,1])
+
+``` 
+Y contains the variable "classe" from the training.test dataset:
+``` {r}
+Y<-training.test$classe
+
+``` 
+This leads to the following Confusion Matrix:
+``` {r}
+cm.KKNN<-confusionMatrix(X,Y)
+cm.KKNN
+
+``` 
+
+## Prediction with Decision Trees
+``` {r}
+library(rpart)
+library(rpart.plot)
+set.seed(36546)
+modelRPART<-rpart(classe ~ ., data=training.train, method="class")
+
+```
+
+Applying our model to the test portion of our training set:
+``` {r}
+predRPART <- predict(modelRPART, training.test, type = "class")
+
+```
+Plotting the Decision Tree as a (flipped) dendrogram:
+``` {r}
+library(ggplot2)
+library(ggdendro)
+ddata <- dendro_data(modelRPART)
+g<-ggplot() + 
+    geom_segment(data = ddata$segments, 
+                 aes(x = x, y = y, xend = xend, yend = yend)) + 
+    geom_text(data = ddata$labels, 
+              aes(x = x, y = y, label = label), size = 3, vjust = 0) +
+    geom_text(data = ddata$leaf_labels, 
+              aes(x = x, y = y, label = label), size = 4, vjust = 1) +
+    theme_dendro() + coord_flip()
+print(g)
+```
+This leads to the following Confusion Matrix:
+
+``` {r}
+cm.RPART <- confusionMatrix(predRPART, training.test$classe)
+cm.RPART
+
+```
+## Prediction with Random Forest
+``` {r}
+library(randomForest)
+set.seed(36546)
+modelRF<-randomForest(classe ~ ., data=training.train)
+predRF <- predict(modelRF, training.test, type = "class")
+plot(modelRF)
+```
+This leads to the following Confusion Matrix:
+
+``` {r}
+cm.RF <- confusionMatrix(predRF, training.test$classe)
+cm.RF
+
+```
+
+## Comparing of the Different Methods
+
+Compared with the other methods, the prediction with Decision trees results in a big out-of-sample-error (1-accuracy). The accuracy for Random Forest Prediction is very high (0.9939), even higher than the one for k-Nearest Neighbour Classification (0.9847), so we use it for our testing set:
+``` {r}
+pred<- predict(modelRF,testing,type="class")
+pred
+
+```
